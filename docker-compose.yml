@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  yt-dlp:
+    build: .
+    image: safe-exec
+    container_name: safe-exec
+    volumes:
+      - ./downloads:/downloads
+    profiles:
+      - donotstart

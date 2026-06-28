@@ -105,7 +105,8 @@ run_ytdlp() {
         --pids-limit=512 \
         "${net[@]}" \
         -v "$(pwd)/downloads:/downloads" \
-        "$IMAGE" --impersonate chrome "${PROXY_ARGS[@]}" "$@"
+        "$IMAGE" --impersonate chrome --retries 10 --retry-sleep http:5 \
+        "${PROXY_ARGS[@]}" "$@"
 }
 
 # Start the PO-token provider (if not already up) on its own network and wait
@@ -154,15 +155,21 @@ stop_pot_provider() {
 
 # One yt-dlp attempt. Returns 0 only if it exits cleanly AND YouTube didn't show
 # the bot gate; otherwise 1 (so the caller can try another proxy / escalate).
+# Sets LAST_PASSED_BOTCHECK=1 when the run got past the bot gate (even if it then
+# failed for another reason, e.g. a 429 on the subtitle endpoint) — that marks
+# the proxy IP as "clean" and a good candidate for PO-token escalation.
 _attempt() {
     local log rc
     log="$(mktemp)"
     run_ytdlp "$@" 2>&1 | tee "$log"
     rc=${PIPESTATUS[0]}
-    if [ "$rc" -eq 0 ] && ! grep -qiE "sign in to confirm|not a bot" "$log"; then
-        rm -f "$log"; return 0
+    if grep -qiE "sign in to confirm|not a bot" "$log"; then
+        LAST_PASSED_BOTCHECK=0
+    else
+        LAST_PASSED_BOTCHECK=1
     fi
-    rm -f "$log"; return 1
+    rm -f "$log"
+    [ "$rc" -eq 0 ] && [ "$LAST_PASSED_BOTCHECK" -eq 1 ]
 }
 
 # Last resort: bring up the isolated PO-token provider and retry once, forcing a
@@ -192,19 +199,26 @@ run_ytdlp_auto() {
         return
     fi
 
-    local order idx tried=0 max=8
+    # Try proxies in random order until one downloads cleanly. Cap the number of
+    # attempts (override with PROXY_MAX), and remember the first proxy that got
+    # past the bot gate but failed otherwise (e.g. a 429) — its IP is clean, so
+    # it's the best base for PO-token escalation.
+    local order idx tried=0 max="${PROXY_MAX:-12}" clean_idx="" first_idx=""
     order="$(seq 0 $(( ${#PROXY_LIST[@]} - 1 )) | awk 'BEGIN{srand()}{print rand()"\t"$0}' | sort -k1,1n | cut -f2)"
     for idx in $order; do
+        [ -z "$first_idx" ] && first_idx="$idx"
         tried=$((tried + 1))
         [ "$tried" -gt "$max" ] && break
         PROXY_ARGS=(--proxy "${PROXY_LIST[$idx]}" --socket-timeout 20)
         echo "[proxy $tried] via $(mask_proxy "${PROXY_LIST[$idx]}")"
         _attempt "${no_pot[@]}" "$@" && return 0
+        [ -z "$clean_idx" ] && [ "${LAST_PASSED_BOTCHECK:-0}" -eq 1 ] && clean_idx="$idx"
         echo "  -> failed/blocked, trying next proxy"
     done
 
-    echo "All tried proxies blocked; escalating to PO token over the first proxy..."
-    PROXY_ARGS=(--proxy "${PROXY_LIST[$(printf '%s\n' $order | head -n1)]}")
+    local esc_idx="${clean_idx:-$first_idx}"
+    echo "Proxies exhausted; escalating to PO token over a clean-IP proxy..."
+    PROXY_ARGS=(--proxy "${PROXY_LIST[$esc_idx]}")
     _escalate_pot "$@"
 }
 

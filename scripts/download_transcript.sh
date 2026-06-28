@@ -22,22 +22,34 @@ resolve_cookies
 
 echo "Fetching transcript: $URL (langs: $LANGS)"
 
+# Fetch each language in its OWN pass. YouTube rate-limits the subtitle endpoint
+# per IP, so asking for several languages in one request makes every one after
+# the first fail with HTTP 429. A pass per language lets each land on its own
+# clean proxy, and a 429 on one language no longer discards the others.
+#
 # --skip-download    : we only want subtitles, not the video.
 # --write-subs       : grab human-made subtitles when available.
 # --write-auto-subs  : fall back to YouTube's auto-generated captions.
 # --convert-subs srt : normalize whatever format YouTube returns into .srt.
 # --no-cache-dir     : don't write to the (read-only) home cache directory.
-run_ytdlp_auto \
-    --skip-download \
-    --write-subs \
-    --write-auto-subs \
-    --sub-langs "$LANGS" \
-    --convert-subs srt \
-    --no-cache-dir \
-    -o "%(title)s.%(ext)s" \
-    --js-runtimes node \
-    "${COOKIE_ARGS[@]}" \
-    "$URL" "$@"
+IFS=',' read -ra LANG_ARR <<< "$LANGS"
+for lang in "${LANG_ARR[@]}"; do
+    lang="${lang//[[:space:]]/}"
+    [ -z "$lang" ] && continue
+    echo "=== Subtitles: $lang ==="
+    run_ytdlp_auto \
+        --skip-download \
+        --write-subs \
+        --write-auto-subs \
+        --sub-langs "$lang" \
+        --convert-subs srt \
+        --sleep-subtitles 1 \
+        --no-cache-dir \
+        -o "%(title)s.%(ext)s" \
+        --js-runtimes node \
+        "${COOKIE_ARGS[@]}" \
+        "$URL" "$@"
+done
 
 # Convert every .srt into a clean .txt transcript (no indices, timestamps or
 # tags). Runs INSIDE a hardened container (with networking disabled) so the
@@ -58,6 +70,7 @@ docker run --rm -i \
             [ -e "$srt" ] || continue
             txt="${srt%.srt}.txt"
             awk "
+                { gsub(/\r/, \"\") }             # strip CR so dedup/compare works
                 /-->/      { next }              # timestamp lines
                 /^[0-9]+\$/ { next }             # subtitle index lines
                 /^[[:space:]]*\$/ { next }       # blank lines

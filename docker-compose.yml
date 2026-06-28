@@ -1,10 +1,20 @@
-version: "3.8"
-
+# Manual/debug entrypoint. The wrapper scripts in scripts/ are the primary
+# interface; this service mirrors their hardening so an ad-hoc `docker compose
+# run` is isolated the same way. Image name matches what the scripts build.
 services:
   yt-dlp:
     build: .
-    image: safe-exec
-    container_name: safe-exec
+    image: isolated-yt-dlp
+    container_name: isolated-yt-dlp
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:size=512m
+    mem_limit: 1g
+    pids_limit: 512
     volumes:
       - ./downloads:/downloads
     profiles:

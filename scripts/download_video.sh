@@ -1,28 +1,21 @@
 #!/bin/bash
 
-# Wrapper script for convenient yt-dlp execution via Docker
+# Download a single video via yt-dlp in a hardened container.
+# Run with no arguments to be prompted for the URL interactively, or pass it:
+#   bash download_video.sh <VIDEO_URL> [extra yt-dlp args]
 
-URL=$1
-shift
+source "$(dirname "$0")/lib/common.sh"
+
+URL=$(prompt_if_empty "$1" "Video URL")
+[ "$#" -gt 0 ] && shift
 
 if [ -z "$URL" ]; then
-    echo "Usage: ./download.sh <VIDEO_URL> [additional_yt_dlp_arguments]"
+    echo "No URL provided."
     exit 1
 fi
 
-# Create downloads directory if it doesn't exist
-mkdir -p downloads
-
-# Build the image if not already built (silently)
-docker build -q -t isolated-yt-dlp . > /dev/null
+build_image
+resolve_cookies
 
 echo "Starting download: $URL"
-
-# Run the container.
-# The --rm flag removes the container after completion.
-# -v $(pwd)/downloads:/downloads mounts the directory.
-docker run --rm -i \
-    --cap-drop=ALL \
-    --security-opt=no-new-privileges:true \
-    -v "$(pwd)/downloads:/downloads" \
-    isolated-yt-dlp --js-runtimes node "$URL" "$@"
+run_ytdlp --js-runtimes node --no-cache-dir "${COOKIE_ARGS[@]}" "$URL" "$@"

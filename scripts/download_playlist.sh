@@ -1,32 +1,32 @@
 #!/bin/bash
 
-# Script for downloading an entire playlist via yt-dlp
+# Download an entire playlist via yt-dlp in a hardened container.
+# Run with no arguments to be prompted for the URL interactively, or pass it:
+#   bash download_playlist.sh <PLAYLIST_URL> [extra yt-dlp args]
 
-URL=$1
-shift
+source "$(dirname "$0")/lib/common.sh"
+
+URL=$(prompt_if_empty "$1" "Playlist URL")
+[ "$#" -gt 0 ] && shift
 
 if [ -z "$URL" ]; then
-    echo "Usage: bash download_playlist.sh <PLAYLIST_URL> [additional_yt_dlp_arguments]"
+    echo "No URL provided."
     exit 1
 fi
 
-mkdir -p downloads
-
-docker build -q -t isolated-yt-dlp . > /dev/null
+build_image
+resolve_cookies
 
 echo "Starting playlist download: $URL"
 
-# Run the container.
-# -i (ignore-errors) allows the download to continue if a video is unavailable.
-# -o "%(playlist_index)s - %(title)s.%(ext)s" saves files with their playlist index number.
-# --yes-playlist confirms that we are downloading a playlist.
-docker run --rm -i \
-    --cap-drop=ALL \
-    --security-opt=no-new-privileges:true \
-    -v "$(pwd)/downloads:/downloads" \
-    isolated-yt-dlp \
+# -i                : keep going if a single video is unavailable.
+# -o "<title>/..."  : group files under a per-playlist folder, numbered.
+# --yes-playlist    : treat the URL as a playlist.
+run_ytdlp \
     -i \
     -o "%(playlist_title)s/%(playlist_index)s - %(title)s.%(ext)s" \
     --yes-playlist \
     --js-runtimes node \
+    --no-cache-dir \
+    "${COOKIE_ARGS[@]}" \
     "$URL" "$@"

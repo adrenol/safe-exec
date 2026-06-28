@@ -106,6 +106,7 @@ run_ytdlp() {
         "${net[@]}" \
         -v "$(pwd)/downloads:/downloads" \
         "$IMAGE" --impersonate chrome --retries 10 --retry-sleep http:5 \
+        --extractor-retries 1 --sleep-requests "${SLEEP_REQUESTS:-0}" \
         "${PROXY_ARGS[@]}" "$@"
 }
 
@@ -163,10 +164,15 @@ _attempt() {
     log="$(mktemp)"
     run_ytdlp "$@" 2>&1 | tee "$log"
     rc=${PIPESTATUS[0]}
+    LAST_FAIL_KIND=""
     if grep -qiE "sign in to confirm|not a bot" "$log"; then
         LAST_PASSED_BOTCHECK=0
+        LAST_FAIL_KIND="botcheck"
     else
         LAST_PASSED_BOTCHECK=1
+        # Extraction worked but the subtitle endpoint rate-limited us — rotating
+        # proxies barely helps and PO won't fix a 429, so the caller bails fast.
+        grep -qi "Unable to download video subtitles" "$log" && LAST_FAIL_KIND="sub429"
     fi
     rm -f "$log"
     [ "$rc" -eq 0 ] && [ "$LAST_PASSED_BOTCHECK" -eq 1 ]
@@ -203,23 +209,45 @@ run_ytdlp_auto() {
     # attempts (override with PROXY_MAX), and remember the first proxy that got
     # past the bot gate but failed otherwise (e.g. a 429) — its IP is clean, so
     # it's the best base for PO-token escalation.
-    local order idx tried=0 max="${PROXY_MAX:-12}" clean_idx="" first_idx=""
+    local order idx tried=0 max="${PROXY_MAX:-12}" clean_idx="" sub429=0
     order="$(seq 0 $(( ${#PROXY_LIST[@]} - 1 )) | awk 'BEGIN{srand()}{print rand()"\t"$0}' | sort -k1,1n | cut -f2)"
     for idx in $order; do
-        [ -z "$first_idx" ] && first_idx="$idx"
         tried=$((tried + 1))
         [ "$tried" -gt "$max" ] && break
         PROXY_ARGS=(--proxy "${PROXY_LIST[$idx]}" --socket-timeout 20)
         echo "[proxy $tried] via $(mask_proxy "${PROXY_LIST[$idx]}")"
         _attempt "${no_pot[@]}" "$@" && return 0
+        # Repeated subtitle-429s across clean IPs mean the endpoint is rate-
+        # limiting this language everywhere (typical for auto-translated subs).
+        # Bail early instead of burning every proxy + a pointless PO escalation.
+        if [ "${LAST_FAIL_KIND:-}" = "sub429" ]; then
+            sub429=$((sub429 + 1))
+            echo "  -> subtitle rate-limited (429) [$sub429/3]"
+            if [ "$sub429" -ge 3 ]; then
+                echo "This subtitle track is 429-limited on every IP — needs cookies. Skipping it."
+                return 1
+            fi
+            continue
+        fi
         [ -z "$clean_idx" ] && [ "${LAST_PASSED_BOTCHECK:-0}" -eq 1 ] && clean_idx="$idx"
         echo "  -> failed/blocked, trying next proxy"
     done
 
-    local esc_idx="${clean_idx:-$first_idx}"
+    # PO token only helps once a request is past the bot gate (it's for the GVS
+    # streaming step, not the initial extraction). If NO proxy got past the gate,
+    # escalation is futile — report instead of wasting a run on a dead proxy.
+    if [ -z "$clean_idx" ]; then
+        echo "Every tried proxy hit the bot gate — a PO token can't bypass that."
+        echo "The IPs are likely rate-limited; try again later, raise PROXY_MAX, or add cookies."
+        return 1
+    fi
     echo "Proxies exhausted; escalating to PO token over a clean-IP proxy..."
-    PROXY_ARGS=(--proxy "${PROXY_LIST[$esc_idx]}")
+    PROXY_ARGS=(--proxy "${PROXY_LIST[$clean_idx]}")
     _escalate_pot "$@"
 }
+
+# Abort the whole run on Ctrl-C / TERM. Without this the proxy loop swallows the
+# signal (it only kills the current docker run) and marches to the next proxy.
+trap 'echo; echo "Aborted."; stop_pot_provider; exit 130' INT TERM
 
 load_proxies

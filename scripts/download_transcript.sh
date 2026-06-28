@@ -22,6 +22,12 @@ resolve_cookies
 
 echo "Fetching transcript: $URL (langs: $LANGS)"
 
+# Clear stale subtitle intermediates so the conversion step only ever sees files
+# downloaded by THIS run. Otherwise a failed run would re-convert an old .srt and
+# print "-> …txt", looking like a success when nothing was actually downloaded.
+# Only the intermediate .vtt/.srt are removed; finished .txt transcripts are kept.
+rm -f downloads/*.vtt downloads/*.srt 2>/dev/null
+
 # Fetch each language in its OWN pass. YouTube rate-limits the subtitle endpoint
 # per IP, so asking for several languages in one request makes every one after
 # the first fail with HTTP 429. A pass per language lets each land on its own

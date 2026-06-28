@@ -12,18 +12,17 @@ RUN apk add --no-cache \
     ca-certificates \
     nodejs
 
-# Install yt-dlp, the bgutil PO-token plugin, and curl_cffi from PyPI, all
-# version-pinned. Installing via pip (rather than the standalone binary) is what
-# lets yt-dlp load curl_cffi for browser-TLS impersonation and auto-discover the
-# plugin — both are plain site-packages. The base image stays digest-pinned for
-# reproducibility; pin the package versions here to control what ships.
-ARG YTDLP_VERSION=2026.06.09
-ARG POT_PLUGIN_VERSION=1.3.1
-ARG CURL_CFFI_VERSION=0.15.0
+# Install yt-dlp, the bgutil PO-token plugin and curl_cffi (browser-TLS
+# impersonation) from a fully hash-pinned lockfile. --require-hashes makes pip
+# refuse any package — direct or transitive — whose artifact doesn't match a
+# recorded SHA256, so the build aborts on tampered or substituted dependencies.
+# Regenerate requirements.txt from requirements.in (see header in that file).
+# Installing via pip (rather than the standalone binary) is what lets yt-dlp
+# load curl_cffi and auto-discover the plugin — both are plain site-packages.
+COPY requirements.txt .
 RUN pip install --break-system-packages --no-cache-dir \
-        "yt-dlp[default]==${YTDLP_VERSION}" \
-        "bgutil-ytdlp-pot-provider==${POT_PLUGIN_VERSION}" \
-        "curl_cffi==${CURL_CFFI_VERSION}"
+        --require-hashes -r requirements.txt && \
+    rm requirements.txt
 
 # Run as an unprivileged user; only /downloads is writable (and it is bind-mounted at runtime).
 RUN adduser -D -u 1000 safe-exec && \

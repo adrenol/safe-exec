@@ -115,7 +115,7 @@ run_ytdlp() {
         --pids-limit=512 \
         "${net[@]}" \
         -v "$(pwd)/downloads:/downloads" \
-        "$IMAGE" "${PROXY_ARGS[@]}" "$@"
+        "$IMAGE" --impersonate chrome "${PROXY_ARGS[@]}" "$@"
 }
 
 # Start the PO-token provider (if not already up) on its own network and wait

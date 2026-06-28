@@ -27,7 +27,7 @@ echo "Fetching transcript: $URL (langs: $LANGS)"
 # --write-auto-subs  : fall back to YouTube's auto-generated captions.
 # --convert-subs srt : normalize whatever format YouTube returns into .srt.
 # --no-cache-dir     : don't write to the (read-only) home cache directory.
-run_ytdlp \
+run_ytdlp_auto \
     --skip-download \
     --write-subs \
     --write-auto-subs \

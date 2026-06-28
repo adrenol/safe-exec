@@ -18,4 +18,4 @@ build_image
 resolve_cookies
 
 echo "Starting download: $URL"
-run_ytdlp --js-runtimes node --no-cache-dir "${COOKIE_ARGS[@]}" "$URL" "$@"
+run_ytdlp_auto --js-runtimes node --no-cache-dir "${COOKIE_ARGS[@]}" "$URL" "$@"

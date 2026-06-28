@@ -22,7 +22,7 @@ echo "Starting playlist download: $URL"
 # -i                : keep going if a single video is unavailable.
 # -o "<title>/..."  : group files under a per-playlist folder, numbered.
 # --yes-playlist    : treat the URL as a playlist.
-run_ytdlp \
+run_ytdlp_auto \
     -i \
     -o "%(playlist_title)s/%(playlist_index)s - %(title)s.%(ext)s" \
     --yes-playlist \

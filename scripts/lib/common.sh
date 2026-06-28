@@ -38,24 +38,14 @@ prompt_if_empty() {
     printf '%s' "$value"
 }
 
-# Populate the global COOKIE_ARGS array. Uses downloads/cookies.txt if present,
-# otherwise asks (interactive terminals only) for a path and copies it in — so
-# the user never has to remember the --cookies flag.
+# Populate the global COOKIE_ARGS array from downloads/cookies.txt if it exists.
+# Cookies are optional now (proxy rotation + impersonation + PO token usually
+# suffice), so this never prompts — drop a cookies.txt in only if you want it.
 resolve_cookies() {
     COOKIE_ARGS=()
     if [ -f "$COOKIE_FILE" ]; then
         COOKIE_ARGS=(--cookies "/downloads/cookies.txt")
         echo "Using cookies: $COOKIE_FILE"
-        return
-    fi
-    [ -t 0 ] || return   # don't block on prompts when run non-interactively
-    printf 'Path to a cookies.txt (Enter to skip, needed only if YouTube asks to "confirm you are not a bot"): ' >&2
-    local path
-    read -r path
-    if [ -n "$path" ] && [ -f "$path" ]; then
-        cp "$path" "$COOKIE_FILE"
-        COOKIE_ARGS=(--cookies "/downloads/cookies.txt")
-        echo "Using cookies: $path"
     fi
 }
 
